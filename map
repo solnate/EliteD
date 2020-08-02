@@ -1,0 +1,69 @@
+import sys, random
+import math
+import csv
+from PIL import Image, ImageDraw, ImageFont
+
+coeff = 0.0555
+x_diff = 2500
+y_diff = 3888
+
+for number in range(40000000, 50000000, 1000000):
+    listings = open('eddb/systems.csv', 'r')
+    reader_prices = csv.DictReader(listings)
+    image = Image.open('map.png')
+    width = image.size[0]  
+    height = image.size[1]  
+    draw = ImageDraw.Draw(image)   
+    pix = image.load()  
+    
+    max = number
+    counting = 0
+    errors = 0
+    rect = 5000
+    points = []
+    for i in range(rect):
+        point = []
+        for j in range(rect):
+            point.append(0)
+        points.append(point)
+
+    for item in reader_prices:
+        counting += 1
+        print(round((counting/(max/100)), 2), "\r", end = "")
+        if  counting == max:
+            break
+        else:
+            x = coeff*float(item["x"]) + x_diff
+            y = -coeff*float(item["z"]) + y_diff
+            if (x < width and x > 0) and (y < height and y > 0):
+                
+                """
+                if float(item["x"]) > 3500 and (float(item["z"]) > 3500 and float(item["z"]) < 30000) and count:
+                    print("name:", item["name"], "x:", x, "itemx:", item["x"], "z:", y, "itemz:", item["z"])
+                    draw.rectangle(((x - 10, y - 10), (x + 10, y + 10)), fill="red")
+                    count -= 1
+
+                """
+
+                points[math.floor(x/(width/rect))][math.floor(y/(height/rect))] += 1
+                color = points[math.floor(x/(width/rect))][math.floor(y/(height/rect))]                
+                if color < 5:
+                    draw.point((x, y), (0, 255, 0))
+                elif color >= 5 and color < 15:
+                    draw.point((x, y), (70, 125, 0))    
+                elif color >= 15 and color < 25:
+                    draw.point((x, y), (0, 125, 0))
+                elif color >= 25 and color < 50:
+                    draw.point((x, y), (125, 125, 0))
+                elif color >= 50 and color < 100:
+                    draw.point((x, y), (255, 125, 0))
+                elif color >= 100 and color < 200:
+                    draw.point((x, y), (255, 100, 0))
+                else:
+                    draw.point((x, y), (255, 0, 0))
+            else:
+                errors += 1
+
+    print("Number of errors:", errors)
+    draw.text((4300, 4700), f"{counting}", font=ImageFont.truetype("19279.ttf", 150))
+    image.save(f"results/result{number}.png", "PNG")
