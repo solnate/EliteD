@@ -1,6 +1,8 @@
+  
 from  urllib.request import urlopen  
 import json
 import time
+from time import time
 import copy
 import math
 import csv
@@ -9,13 +11,39 @@ from bs4 import BeautifulSoup
 import re
 from urllib.request import HTTPError
 import datetime
-from multiprocessing import Process
+from multiprocessing import Process, current_process
 import collections
 from prettytable import PrettyTable
 import multiprocessing
-
+import os
 commos = {}
 invert_commos = {}
+
+def download_files():
+
+    if not os.path.exists('eddb/commodities.json'):
+        print("Downloading commos...")
+        url = urlopen("https://eddb.io/archive/v6/commodities.json")    
+        f = url.read()
+        open("eddb/commodities.json","wb").write(f) 
+
+    if not os.path.exists('eddb/systems_populated.json'):
+        print("Downloading systems...")
+        url = urlopen("https://eddb.io/archive/v6/systems_populated.json")    
+        f = url.read()
+        open("eddb/systems_populated.json","wb").write(f)
+
+    if not os.path.exists('eddb/stations.json'):
+        print("Downloading stations...")
+        url = urlopen("https://eddb.io/archive/v6/stations.json")    
+        f = url.read()
+        open("eddb/stations.json","wb").write(f)
+
+    if not os.path.exists('eddb/listings.csv'):
+        print("Downloading prices...")
+        url = urlopen("https://eddb.io/archive/v6/listings.csv")    
+        f = url.read()
+        open("eddb/listings.csv","wb").write(f)
 
 def read_file(filename):
     with open(filename, encoding='utf-8') as input_file:
@@ -47,7 +75,77 @@ def check(system_id, commo_id):
             continue
     return int(price)
 
-def commo_brute(f_station_id, s_station_id, price, stations, table, dist):      
+def multiproc(flag, stations):
+    if flag == '1':
+        with open('eddb/result/res.json', 'r', encoding='utf-8') as f:
+            read_systems = json.loads(f.read())
+
+        for station in stations:
+            id = str(stations[station].ret_id())
+            for item in read_systems[id]['prices']:
+                price = Price(
+                    id, item, 
+                    read_systems[id]['prices'][item]['supply'], 
+                    read_systems[id]['prices'][item]['buy price'], 
+                    read_systems[id]['prices'][item]['sell price']
+                )  
+                stations[station].add_price(price, item)
+
+        return 0      
+
+    now = datetime.datetime.now()
+    print("Started at", now.hour, ":", now.minute)
+
+    tasks = multiprocessing.JoinableQueue()
+    results = multiprocessing.Queue()
+
+    num_consumers = 8
+    print ('Creating %d consumers' % num_consumers)
+    consumers = [ Consumer(tasks, results, flag)
+                  for i in range(num_consumers) ]
+    for w in consumers:
+        w.start()
+    
+    num_jobs = len(stations)
+    nums = num_jobs
+     
+    for item in stations:
+        if nums:
+            tasks.put(Task(stations[item], market_commos))
+
+        else:
+            break
+
+        nums -= 1
+
+    for i in range(num_consumers):
+        tasks.put(None)
+
+    tasks.join()
+    
+    for i in range(num_jobs):
+        result = results.get()
+        stations[result.ret_id()] = result
+
+    json_stations = dict()
+    for station in stations:
+        json_stations[station] = stations[station].ret_json()
+
+    now = int(time())
+    dir = f'eddb/result/{now}'
+    if not os.path.isdir(dir):
+        os.makedirs(dir)
+
+    with open(f'{dir}/res.json', 'w', encoding='utf-8') as f:
+        json.dump(json_stations, f, ensure_ascii=False, indent=4)
+
+    with open(f'eddb/result/res.json', 'w', encoding='utf-8') as f:
+        json.dump(json_stations, f, ensure_ascii=False, indent=4)
+
+    now = datetime.datetime.now()
+    print("ended at", now.hour, ":", now.minute)
+
+def commo_brute(f_station_id, s_station_id, price, stations, table, dist, cur_dist):      
     min_supply, min_profit = [700, 20000]       
     sup = stations[f_station_id].ret_prices()[price].ret_supply()
     if (stations[f_station_id].ret_prices()[price].ret_buy_price() > 0 and sup > min_supply) and price in stations[s_station_id].ret_prices():
@@ -55,20 +153,20 @@ def commo_brute(f_station_id, s_station_id, price, stations, table, dist):
         if profit_buy > min_profit: 
             buy_system_id = stations[f_station_id].ret_id()
             buy_price = stations[f_station_id].ret_prices()[price].ret_buy_price()
-            buy_dist = stations[f_station_id].ret_dist()
+            buy_dist = stations[f_station_id].ret_name()
             sell_system_id = stations[s_station_id].ret_id()
             sell_price = stations[s_station_id].ret_prices()[price].ret_sell_price()
             #checked = check(stations[s_station_id].ret_id(), stations[s_station_id].ret_prices()[price].ret_commmodity_id())
             checked = 0
-            sell_dist = stations[s_station_id].ret_dist()
+            sell_dist = stations[s_station_id].ret_name()
             commodity_id = stations[f_station_id].ret_prices()[price].ret_commmodity_id()
-            table.add_row([profit_buy, buy_system_id, buy_price, buy_dist, sell_system_id, sell_price, checked, sell_dist, commodity_id, sup, dist])
+            table.add_row([profit_buy, buy_system_id, buy_price, buy_dist, sell_system_id, sell_price, checked, sell_dist, commodity_id, sup, dist, cur_dist])
 
-def count(name, stations, start, end):
+def count(name, stations, coor):
     print('Process %s starting...' % name)
     counting_buy, counting_sell, max_dist, av = [0, 0, 20, 0]
     table = PrettyTable()
-    table.field_names = ["Profit", "Buy Id", "Buy price", "Buy ls", "Sell Id", "Sell price", "Checked", "Sell ls", "Comm. Id", "Supply", "ly"]
+    table.field_names = ["Profit", "Buy Id", "Buy price", "Buy name", "Sell Id", "Sell price", "Checked", "Sell name", "Comm. Id", "Supply", "ly", "to me"]
     table.align["Buy Id"] = "l"
     table.align["Buy price"] = "l"
     table.align["Buy ls"] = "l"
@@ -77,22 +175,33 @@ def count(name, stations, start, end):
     table.align["Supply"] = "l"
     table.align["ly"] = "l"
     for f_station_id in stations:
-        if f_station_id > start and f_station_id <= end:
-            counting_buy = counting_buy + 1
-            print(counting_buy, "\r", end = "")
-            for s_station_id in stations:
-                if s_station_id > f_station_id:
-                    dist = math.sqrt(((stations[s_station_id].ret_x() - stations[f_station_id].ret_x()) ** 2) + ((stations[s_station_id].ret_y() - stations[f_station_id].ret_y()) ** 2) + ((stations[s_station_id].ret_z() - stations[f_station_id].ret_z()) ** 2))
-                    dist = round(dist, 2)
-                    if dist < max_dist:
-                        prices_ = stations[f_station_id].ret_prices()
-                        _prices = stations[s_station_id].ret_prices()
-                        for price_ in prices_:
-                            counting_sell += 1 
-                            commo_brute(f_station_id, s_station_id, price_, stations, table, dist)
-                        for _price in _prices:
-                            counting_sell += 1
-                            commo_brute(s_station_id, f_station_id, _price, stations, table, dist)
+        counting_buy = counting_buy + 1
+        print(counting_buy, "\r", end = "")
+        for s_station_id in stations:
+            if s_station_id > f_station_id:
+                dist = math.sqrt(
+                    ((stations[s_station_id].ret_x() - stations[f_station_id].ret_x()) ** 2) + 
+                    ((stations[s_station_id].ret_y() - stations[f_station_id].ret_y()) ** 2) + 
+                    ((stations[s_station_id].ret_z() - stations[f_station_id].ret_z()) ** 2)
+                )
+                dist = round(dist, 2)
+
+                cur_dist = math.sqrt(
+                    ((coor[0] - stations[f_station_id].ret_x()) ** 2) + 
+                    ((coor[1] - stations[f_station_id].ret_y()) ** 2) + 
+                    ((coor[2] - stations[f_station_id].ret_z()) ** 2)
+                    )
+                cur_dist = round(cur_dist, 2)
+
+                if dist < max_dist:
+                    prices_ = stations[f_station_id].ret_prices()
+                    _prices = stations[s_station_id].ret_prices()
+                    for price_ in prices_:
+                        counting_sell += 1 
+                        commo_brute(f_station_id, s_station_id, price_, stations, table, dist, cur_dist)
+                    for _price in _prices:
+                        counting_sell += 1
+                        commo_brute(s_station_id, f_station_id, _price, stations, table, dist, cur_dist)
     print(table)
     print("Systems checked:", counting_buy, "to", counting_sell)
     now = datetime.datetime.now()
@@ -145,6 +254,18 @@ class Station:
         self.y = y
         self.z = z
 
+    def ret_json(self):
+        return {
+            'name': self.name,
+            'id': self.id,
+            'system_id': self.system_id,
+            'dist': self.dist,
+            'prices': self.ret_json_prices(),
+            'x': self.x,
+            'y': self.y,
+            'z': self.z
+        }
+
     def __str__(self):
         return str(self.name) + str(self.id)
 
@@ -159,6 +280,14 @@ class Station:
     
     def ret_prices(self):
         return self.prices
+
+    def ret_json_prices(self):
+        json_prices = dict()
+        for item in self.prices:
+            print(item, "\r", end = "")
+            json_prices[item] = self.prices[item].ret_json()
+
+        return json_prices
     
     def add_price(self, price, commodity_id):
         self.prices[int(commodity_id)] = price
@@ -202,20 +331,30 @@ class Price:
     def ret_supply(self):
         return self.supply 
 
+    def ret_json(self):
+        return {
+            'station id': self.station_id,
+            'commodity id': self.commodity_id,
+            'supply': self.supply,
+            'buy price': self.buy_price,
+            'sell price': self.sell_price
+        }
+
 class Consumer(multiprocessing.Process):
     
-    def __init__(self, task_queue, result_queue):
+    def __init__(self, task_queue, result_queue, flag):
         multiprocessing.Process.__init__(self)
         self.task_queue = task_queue
         self.result_queue = result_queue
         self.numbs = 0
+
     def run(self):
         proc_name = self.name
         while True:
             next_task = self.task_queue.get()
             if next_task is None:
                 # Poison pill means shutdown
-                print ('%s: Exiting' % proc_name)
+                # print ('%s: Exiting' % proc_name)
                 self.task_queue.task_done()
                 break
             self.numbs += 1
@@ -229,8 +368,8 @@ class Task(object):
     def __init__(self, station, market_commos):
         self.station = station
         self.market_commos = market_commos
+
     def __call__(self):
-        errors, price_count = [0, 0]
         page_link = 'https://eddb.io/station/market/%d' % (self.station.id)
         page_response = requests.get(page_link, timeout=5)
         soup = BeautifulSoup(page_response.content, "html.parser")
@@ -247,40 +386,16 @@ class Task(object):
                             price = Price(self.station.id, _link[11:], _prices[4].text.replace(",", ""), _prices[1].text.replace(",", ""), _prices[0].text.replace(",", ""))       
                         elif len(_prices) == 4:
                             price = Price(self.station.id, _link[11:], _prices[3].text.replace(",", ""), 0, _prices[0].text.replace(",", "")) 
-                        self.station.add_price(price, int(_link[11:])) 
-                        price_count += 1    
+                        self.station.add_price(price, int(_link[11:]))     
                 except AttributeError:
                     continue
         except AttributeError:
-            errors += 1
+            pass
         return self.station
 
 if __name__ == '__main__':
-    #--------
-    #print("Downloading commos...")
-    #url = urlopen("https://eddb.io/archive/v6/commodities.json")    
-    #f = url.read()
-    #open("eddb/commodities.json","wb").write(f) 
+    download_files()
 
-    #--------
-    #print("Downloading systems...")
-    #url = urlopen("https://eddb.io/archive/v6/systems_populated.json")    
-    #f = url.read()
-    #open("eddb/systems_populated.json","wb").write(f)
-
-    #--------
-    #print("Downloading stations...")
-    #url = urlopen("https://eddb.io/archive/v6/stations.json")    
-    #f = url.read()
-    #open("eddb/stations.json","wb").write(f)
-
-    #--------
-    #print("Downloading prices...")
-    #url = urlopen("https://eddb.io/archive/v6/listings.csv")    
-    #f = url.read()
-    #open("eddb/listings.csv","wb").write(f)
-
-    #--------
     print("Opening systems...")
     with open('eddb/systems_populated.json', 'r') as f_systems:
         systems_data = json.load(f_systems)
@@ -303,21 +418,15 @@ if __name__ == '__main__':
     print("Parsing started--->")
     systems = dict()
     stations = dict()
-
+#---------------------------------------------------------------------------------------   
     print("Parsing systems...")
     systems_data_iter = iter(systems_data)
     for item in systems_data_iter:
         system = System(item["name"], item["x"], item["y"], item["z"])
         systems[item["id"]] = system
+
     print("Known systems: ", len(systems))
-
-    #commos_data_iter = iter(commos_data)
-    #for item in commos_data_iter:
-    #    commos[item["name"]] = item["id"]
-    #invert_commos_data_iter = iter(commos_data)
-    #for item in invert_commos_data_iter:
-    #    invert_commos[item["id"]] = item["name"]
-
+#---------------------------------------------------------------------------------------
     print("Parsing stations...")
     fleet_carriers, errors, another, too_dist, planetary = [0, 0, 0, 0, 0]
     error_id = []
@@ -326,21 +435,27 @@ if __name__ == '__main__':
         try:
             if item["type"] == "Fleet Carrier":
                 fleet_carriers += 1
+
             elif item["is_planetary"] == True:
                 planetary += 1
-            elif item["distance_to_star"] > 2000:
+
+            elif item["distance_to_star"] > 1500:
                 too_dist += 1
+
             elif item["max_landing_pad_size"] == "L":
                 x = systems[item["system_id"]].ret_x()
                 y = systems[item["system_id"]].ret_y()
                 z = systems[item["system_id"]].ret_z()
                 station = Station(item["name"], item["id"], item["system_id"], int(item["distance_to_star"]), x, y, z)
                 stations[item["id"]] = station
+                    
             else:
                 another += 1
+
         except TypeError:
             errors += 1
             error_id.append(item["id"])
+        
     print("Not enough information for", errors, "systems") 
     #print(error_id)
     print("Planetary: ", planetary)
@@ -348,7 +463,7 @@ if __name__ == '__main__':
     print("Too dist: ", too_dist)
     print("Another: ", another)
     print("Known stations(L): ", len(stations))
-
+#--------------------------------------------------------------------------------------- 
     market_commos = {}
     market_commos_data_iter = iter(commos_data)
     for item in market_commos_data_iter:
@@ -356,77 +471,24 @@ if __name__ == '__main__':
             market_commos[item["id"]] = 1
         else:
             market_commos[item["id"]] = 0 
-
-#----------------------------------------------------------------------------------
-    now = datetime.datetime.now()
-    print("Started at", now.hour, ":", now.minute)
-   # Establish communication queues
-    tasks = multiprocessing.JoinableQueue()
-    results = multiprocessing.Queue()
-
-    # Start consumers
-    num_consumers = 8
-    print ('Creating %d consumers' % num_consumers)
-    consumers = [ Consumer(tasks, results)
-                  for i in range(num_consumers) ]
-    for w in consumers:
-        w.start()
-    
-    # Enqueue jobs
-    num_jobs = len(stations)
-    nums = num_jobs
-    for item in stations:
-        if nums:
-            tasks.put(Task(stations[item], market_commos))
-            nums -= 1
-        else:
-            break
-    
-    # Add a poison pill for each consumer
-    for i in range(num_consumers):
-        tasks.put(None)
-
-    # Wait for all of the tasks to finish
-    tasks.join()
-    
-    stations.clear()
-    # Start printing results
-    for i in range(num_jobs):
-        result = results.get()
-        stations[i] = result
-
-#    for item in stations:
-#        print ('Result:', item, stations[item].name) 
-
-    now = datetime.datetime.now()
-    print("ended at", now.hour, ":", now.minute)
-
-#----------------------------------------------------------------------------------
+#--------------------------------------------------------------------------------------- 
+    multiproc('0', stations)
+#---------------------------------------------------------------------------------------
+    my_id = input('Your station: ')
     now = datetime.datetime.now()
     print("Started at", now.hour, ":", now.minute)
 
-    [end] = collections.deque(stations, maxlen=1)
-    print("End:", end)
-    print("Finding middle: ", end = "")
-    for item in range(int(math.floor(end/2)), end):
-        if item in stations:
-            print(item)
-            middle = item
-            break
-    
-    process1 = Process(target=count, args=("A", stations, 0, middle))
-    process2 = Process(target=count, args=("B", stations, middle, end))
+    res1 = dict(list(stations.items())[len(stations)//2:])
+    res2 = dict(list(stations.items())[:len(stations)//2])
+
+    coor = [stations[int(my_id)].ret_x(), stations[int(my_id)].ret_y(), stations[int(my_id)].ret_z()]
+
+    process1 = Process(target=count, args=("A", res1, coor))
+    process2 = Process(target=count, args=("B", res2, coor))
 
     process1.start()
     process2.start()
 
     process1.join()
     process2.join()
-
-
-
-
-    #for i in systems[it].ret_stations():
-    #                print(systems[it].ret_stations()[i].ret_name(), " id: ", systems[it].ret_stations()[i].ret_id(), " system_id: ", systems[it].ret_stations()[i].ret_system_id(), buy_price, sell_price)
-    #                for k in systems[it].ret_stations()[i].ret_prices():
-    #                    print("Commodity_id: ", systems[it].ret_stations()[i].ret_prices()[k].ret_commmodity_id(), "Sell_price: ", systems[it].ret_stations()[i].ret_prices()[k].ret_sell_price())
+    
