@@ -16,8 +16,6 @@ import collections
 from prettytable import PrettyTable
 import multiprocessing
 import os
-commos = {}
-invert_commos = {}
 
 def download_files():
 
@@ -157,16 +155,15 @@ def commo_brute(f_station_id, s_station_id, price, stations, table, dist, cur_di
             sell_system_id = stations[s_station_id].ret_id()
             sell_price = stations[s_station_id].ret_prices()[price].ret_sell_price()
             #checked = check(stations[s_station_id].ret_id(), stations[s_station_id].ret_prices()[price].ret_commmodity_id())
-            checked = 0
             sell_dist = stations[s_station_id].ret_name()
             commodity_id = stations[f_station_id].ret_prices()[price].ret_commmodity_id()
-            table.add_row([profit_buy, buy_system_id, buy_price, buy_dist, sell_system_id, sell_price, checked, sell_dist, commodity_id, sup, dist, cur_dist])
+            table.add_row([profit_buy, buy_system_id, buy_price, buy_dist, sell_system_id, sell_price, sell_dist, commodity_id, sup, dist, cur_dist])
 
 def count(name, stations, coor):
     print('Process %s starting...' % name)
     counting_buy, counting_sell, max_dist, av = [0, 0, 20, 0]
     table = PrettyTable()
-    table.field_names = ["Profit", "Buy Id", "Buy price", "Buy name", "Sell Id", "Sell price", "Checked", "Sell name", "Comm. Id", "Supply", "ly", "to me"]
+    table.field_names = ["Profit", "Buy Id", "Buy price", "Buy name", "Sell Id", "Sell price", "Sell name", "Comm. Id", "Supply", "ly", "to me"]
     table.align["Buy Id"] = "l"
     table.align["Buy price"] = "l"
     table.align["Buy ls"] = "l"
@@ -333,8 +330,6 @@ class Price:
 
     def ret_json(self):
         return {
-            'station id': self.station_id,
-            'commodity id': self.commodity_id,
             'supply': self.supply,
             'buy price': self.buy_price,
             'sell price': self.sell_price
@@ -472,16 +467,22 @@ if __name__ == '__main__':
         else:
             market_commos[item["id"]] = 0 
 #--------------------------------------------------------------------------------------- 
-    multiproc('0', stations)
+    multiproc('1', stations)
 #---------------------------------------------------------------------------------------
+    # print(stations[4107].ret_json_prices())
     my_id = input('Your station: ')
     now = datetime.datetime.now()
     print("Started at", now.hour, ":", now.minute)
 
+    tempst = stations.copy()
+    stations.clear()
+    for k in sorted(tempst.keys()):
+        stations[k] = tempst[k]
+
     res1 = dict(list(stations.items())[len(stations)//2:])
     res2 = dict(list(stations.items())[:len(stations)//2])
 
-    coor = [stations[int(my_id)].ret_x(), stations[int(my_id)].ret_y(), stations[int(my_id)].ret_z()]
+    coor = [systems[int(my_id)].ret_x(), systems[int(my_id)].ret_y(), systems[int(my_id)].ret_z()]
 
     process1 = Process(target=count, args=("A", res1, coor))
     process2 = Process(target=count, args=("B", res2, coor))
