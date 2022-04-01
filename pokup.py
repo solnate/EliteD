@@ -6,8 +6,13 @@ def pokup(balance):
             countOfBill = int(input('Кол-во номиналов: '))
         except ValueError:
                 print("Вы ввели не число. Попробуйте снова")
-        else:
-            break
+        else: 
+            if countOfBill > 0:
+                break
+            elif countOfBill > len(nominal):
+                print('Вы ввели чило больше количества возможных номиналов')
+            else:
+                print('Введите число больше 0')
 
     billNominals = []
     while countOfBill:
@@ -29,4 +34,4 @@ def pokup(balance):
     
     print('Осталось', balance)
 
-pokup(16000)
+pokup(17000)
