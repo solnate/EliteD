@@ -8,8 +8,8 @@ def pokup(balance):
                 print("Вы ввели не число. Попробуйте снова")
         else: 
             if countOfBill > len(nominal):
-                print('Вы ввели чило больше количества возможных номиналов')
-            elif countOfBill <= 0 :
+                print('Вы ввели число больше количества возможных номиналов')
+            elif countOfBill <= 0:
                 print('Введите число больше 0')
             else:
                 break
